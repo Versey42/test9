@@ -38,7 +38,7 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
             data["s2s"] = "1"
 
         r = requests.post(url, data=data, headers=headers, timeout=10)
-        return f"{r.status_code}"
+        return str(r.status_code)
 
     except Exception as e:
         return str(e)
@@ -76,6 +76,7 @@ def home():
     return render_template("index.html")
 
 
+# ✅ THIS IS THE ROUTE YOU WERE MISSING
 @app.route("/credit-now", methods=["POST"])
 def credit_now():
     data = request.get_json(force=True)
@@ -98,9 +99,9 @@ def schedule():
     data = request.get_json(force=True)
 
     seconds = (
-        int(data["hours"]) * 3600 +
-        int(data["minutes"]) * 60 +
-        int(data["seconds"])
+        int(data.get("hours", 0)) * 3600 +
+        int(data.get("minutes", 0)) * 60 +
+        int(data.get("seconds", 0))
     )
 
     target = datetime.now() + timedelta(seconds=seconds)
