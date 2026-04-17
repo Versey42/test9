@@ -1,43 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>S2S Manual</title>
-    <style>
-        body {
-            background: #0d0d1a;
-            color: #c0bedd;
-            font-family: Courier;
-            padding: 20px;
-        }
-
-        input {
-            width: 100%;
-            padding: 8px;
-            margin: 5px 0;
-            background: #1a1a2e;
-            border: none;
-            color: #fff;
-        }
-
-        button {
-            width: 100%;
-            padding: 10px;
-            margin-top: 8px;
-            background: #1c1c30;
-            color: #c0bedd;
-            border: none;
-            cursor: pointer;
-        }
-
-        #log {
-            margin-top: 10px;
-            height: 250px;
-            overflow-y: auto;
-            background: #000;
-            padding: 10px;
-            font-size: 12px;
-        }
-    </style>
+<title>S2S Manual</title>
+<style>
+body { background:#0d0d1a; color:#c0bedd; font-family:Courier; padding:20px;}
+input,button { width:100%; padding:8px; margin:5px 0; background:#1a1a2e; border:none; color:#fff;}
+button { cursor:pointer; }
+.job { background:#111; padding:8px; margin:5px 0; }
+</style>
 </head>
 <body>
 
@@ -45,46 +15,84 @@
 
 <input id="app_token" placeholder="App Token">
 <input id="event_token" placeholder="Event Token">
-<input id="device_id" placeholder="GPS ADID / IDFA">
+<input id="device_id" placeholder="Device ID">
 
-<label><input type="checkbox" id="ios" checked> iOS Device</label>
-<label><input type="checkbox" id="s2s"> s2s=1</label>
+<label><input type="checkbox" id="ios" checked> iOS</label>
+<label><input type="checkbox" id="s2s"> s2s</label>
 
-<button onclick="sendNow()">Credit Event (now)</button>
+<input id="hours" placeholder="Hours (e.g. 2.5)">
+<button onclick="scheduleHours()">Schedule (Hours)</button>
 
-<div id="log"></div>
+<input id="datetime" type="datetime-local">
+<button onclick="scheduleExact()">Schedule (Exact)</button>
+
+<h3>Jobs</h3>
+<div id="jobs"></div>
 
 <script>
-function log(msg) {
-    const logBox = document.getElementById("log");
-    const time = new Date().toLocaleTimeString();
-    logBox.innerHTML += `[${time}] ${msg}<br>`;
-    logBox.scrollTop = logBox.scrollHeight;
-}
-
-async function sendNow() {
-    const res = await fetch("/send-now", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            app_token: document.getElementById("app_token").value,
-            event_token: document.getElementById("event_token").value,
-            device_id: document.getElementById("device_id").value,
-            is_ios: document.getElementById("ios").checked,
-            use_s2s: document.getElementById("s2s").checked
-        })
-    });
-
-    const data = await res.json();
-
-    if (data.error) {
-        log("ERROR: " + data.error);
-    } else {
-        log(data.status === 200 ? "Success" : data.response);
+function getData() {
+    return {
+        app_token: app_token.value,
+        event_token: event_token.value,
+        device_id: device_id.value,
+        is_ios: ios.checked,
+        use_s2s: s2s.checked
     }
 }
+
+async function scheduleHours() {
+    await fetch("/schedule", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+            ...getData(),
+            mode:"hours",
+            hours: hours.value
+        })
+    });
+}
+
+async function scheduleExact() {
+    await fetch("/schedule", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+            ...getData(),
+            mode:"exact",
+            datetime: datetime.value
+        })
+    });
+}
+
+async function cancel(id) {
+    await fetch("/cancel/" + id, { method:"POST" });
+}
+
+function format(sec) {
+    let h = Math.floor(sec/3600);
+    let m = Math.floor((sec%3600)/60);
+    let s = sec%60;
+    return `${h}h ${m}m ${s}s`;
+}
+
+async function loadJobs() {
+    const res = await fetch("/jobs");
+    const jobs = await res.json();
+
+    const container = document.getElementById("jobs");
+    container.innerHTML = "";
+
+    jobs.forEach(j => {
+        container.innerHTML += `
+            <div class="job">
+                Job #${j.id} - ${j.done ? j.result : format(j.remaining)}
+                ${!j.done ? `<button onclick="cancel(${j.id})">Cancel</button>` : ""}
+            </div>
+        `;
+    });
+}
+
+setInterval(loadJobs, 1000);
 </script>
 
 </body>
