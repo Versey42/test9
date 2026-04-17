@@ -38,10 +38,15 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
             data["s2s"] = "1"
 
         r = requests.post(url, data=data, headers=headers, timeout=10)
-        return str(r.status_code)
+
+        # 🔥 TRY PARSE JSON RESPONSE
+        try:
+            return r.json()
+        except:
+            return {"raw": r.text, "status": r.status_code}
 
     except Exception as e:
-        return str(e)
+        return {"error": str(e)}
 
 
 def run_job(jid):
@@ -76,7 +81,6 @@ def home():
     return render_template("index.html")
 
 
-# ✅ THIS IS THE ROUTE YOU WERE MISSING
 @app.route("/credit-now", methods=["POST"])
 def credit_now():
     data = request.get_json(force=True)
@@ -89,7 +93,7 @@ def credit_now():
         data["use_s2s"]
     )
 
-    return jsonify({"result": result})
+    return jsonify(result)
 
 
 @app.route("/schedule", methods=["POST"])
@@ -120,7 +124,7 @@ def schedule():
             "use_s2s": data["use_s2s"],
             "cancelled": False,
             "done": False,
-            "result": ""
+            "result": None
         }
 
     threading.Thread(target=run_job, args=(jid,), daemon=True).start()
