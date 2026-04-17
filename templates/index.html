@@ -20,11 +20,15 @@ button { cursor:pointer; }
 <label><input type="checkbox" id="ios" checked> iOS</label>
 <label><input type="checkbox" id="s2s"> s2s</label>
 
-<input id="hours" placeholder="Hours (e.g. 2.5)">
-<button onclick="scheduleHours()">Schedule (Hours)</button>
+<button onclick="creditNow()">🔥 Credit Now</button>
 
-<input id="datetime" type="datetime-local">
-<button onclick="scheduleExact()">Schedule (Exact)</button>
+<h3>Schedule</h3>
+
+<input id="hours" placeholder="Hours">
+<input id="minutes" placeholder="Minutes">
+<input id="seconds" placeholder="Seconds">
+
+<button onclick="schedule()">Schedule</button>
 
 <h3>Jobs</h3>
 <div id="jobs"></div>
@@ -40,31 +44,31 @@ function getData() {
     }
 }
 
-async function scheduleHours() {
+async function creditNow() {
+    const res = await fetch("/credit-now", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(getData())
+    });
+
+    const data = await res.json();
+    alert("Result: " + data.result);
+}
+
+async function schedule() {
     await fetch("/schedule", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
             ...getData(),
-            mode:"hours",
-            hours: hours.value
+            hours: hours.value || 0,
+            minutes: minutes.value || 0,
+            seconds: seconds.value || 0
         })
     });
 }
 
-async function scheduleExact() {
-    await fetch("/schedule", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({
-            ...getData(),
-            mode:"exact",
-            datetime: datetime.value
-        })
-    });
-}
-
-async function cancel(id) {
+async function cancelJob(id) {
     await fetch("/cancel/" + id, { method:"POST" });
 }
 
@@ -86,7 +90,7 @@ async function loadJobs() {
         container.innerHTML += `
             <div class="job">
                 Job #${j.id} - ${j.done ? j.result : format(j.remaining)}
-                ${!j.done ? `<button onclick="cancel(${j.id})">Cancel</button>` : ""}
+                ${!j.done ? `<button onclick="cancelJob(${j.id})">Cancel</button>` : ""}
             </div>
         `;
     });
