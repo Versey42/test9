@@ -8,10 +8,19 @@ app = Flask(__name__)
 def send_single(app_token, event_token, device_id, is_ios, use_s2s):
     url = "https://app.adjust.com/event"
 
+    headers = {
+        "accept-encoding": "gzip",
+        "client-sdk": "android4.36.0",
+        "connection": "Keep-Alive",
+        "content-type": "application/x-www-form-urlencoded",
+        "host": "app.adjust.com"
+    }
+
     data = {
         "app_token": app_token,
         "event_token": event_token,
         "environment": "production",
+        "created_at": "",
         "currency": "USD",
         "revenue": "4.99"
     }
@@ -26,10 +35,6 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
     if use_s2s:
         data["s2s"] = "1"
 
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-
     response = requests.post(url, data=data, headers=headers)
     return response.status_code, response.text
 
@@ -41,26 +46,36 @@ def home():
 
 @app.route("/send-now", methods=["POST"])
 def send_now():
-    data = request.get_json()
-
-    app_token = data.get("app_token")
-    event_token = data.get("event_token")
-    device_id = data.get("device_id")
-    is_ios = data.get("is_ios")
-    use_s2s = data.get("use_s2s")
-
-    if not app_token or not event_token or not device_id:
-        return jsonify({"error": "Missing fields"}), 400
-
     try:
-        status, body = send_single(app_token, event_token, device_id, is_ios, use_s2s)
+        data = request.get_json(force=True)
+
+        app_token = data.get("app_token", "").strip()
+        event_token = data.get("event_token", "").strip()
+        device_id = data.get("device_id", "").strip()
+        is_ios = bool(data.get("is_ios"))
+        use_s2s = bool(data.get("use_s2s"))
+
+        if not app_token or not event_token or not device_id:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        status, body = send_single(
+            app_token,
+            event_token,
+            device_id,
+            is_ios,
+            use_s2s
+        )
+
         return jsonify({
             "status": status,
             "response": body,
             "time": datetime.now().strftime("%H:%M:%S")
         })
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
