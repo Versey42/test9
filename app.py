@@ -38,7 +38,7 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
             data["s2s"] = "1"
 
         r = requests.post(url, data=data, headers=headers, timeout=10)
-        return str(r.status_code)
+        return f"{r.status_code}"
 
     except Exception as e:
         return str(e)
@@ -76,66 +76,78 @@ def home():
     return render_template("index.html")
 
 
+@app.route("/credit-now", methods=["POST"])
+def credit_now():
+    data = request.get_json(force=True)
+
+    result = send_single(
+        data["app_token"],
+        data["event_token"],
+        data["device_id"],
+        data["is_ios"],
+        data["use_s2s"]
+    )
+
+    return jsonify({"result": result})
+
+
 @app.route("/schedule", methods=["POST"])
 def schedule():
     global job_id_counter
 
     data = request.get_json(force=True)
 
-    try:
-        mode = data["mode"]
+    seconds = (
+        int(data["hours"]) * 3600 +
+        int(data["minutes"]) * 60 +
+        int(data["seconds"])
+    )
 
-        if mode == "hours":
-            target = datetime.now() + timedelta(hours=float(data["hours"]))
-        else:
-            target = datetime.fromisoformat(data["datetime"])
+    target = datetime.now() + timedelta(seconds=seconds)
 
-        with lock:
-            job_id_counter += 1
-            jid = job_id_counter
+    with lock:
+        job_id_counter += 1
+        jid = job_id_counter
 
-            jobs[jid] = {
-                "id": jid,
-                "target": target,
-                "app_token": data["app_token"],
-                "event_token": data["event_token"],
-                "device_id": data["device_id"],
-                "is_ios": data["is_ios"],
-                "use_s2s": data["use_s2s"],
-                "cancelled": False,
-                "done": False,
-                "result": ""
-            }
+        jobs[jid] = {
+            "id": jid,
+            "target": target,
+            "app_token": data["app_token"],
+            "event_token": data["event_token"],
+            "device_id": data["device_id"],
+            "is_ios": data["is_ios"],
+            "use_s2s": data["use_s2s"],
+            "cancelled": False,
+            "done": False,
+            "result": ""
+        }
 
-        threading.Thread(target=run_job, args=(jid,), daemon=True).start()
+    threading.Thread(target=run_job, args=(jid,), daemon=True).start()
 
-        return jsonify({"ok": True})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/jobs")
 def get_jobs():
-    try:
-        output = []
+    output = []
 
-        for j in jobs.values():
-            remaining = int((j["target"] - datetime.now()).total_seconds())
-            if remaining < 0:
-                remaining = 0
+    for jid, j in list(jobs.items()):
+        if j["cancelled"]:
+            del jobs[jid]
+            continue
 
-            output.append({
-                "id": j["id"],
-                "remaining": remaining,
-                "done": j["done"],
-                "result": j["result"]
-            })
+        remaining = int((j["target"] - datetime.now()).total_seconds())
+        if remaining < 0:
+            remaining = 0
 
-        return jsonify(output)
+        output.append({
+            "id": j["id"],
+            "remaining": remaining,
+            "done": j["done"],
+            "result": j["result"]
+        })
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(output)
 
 
 @app.route("/cancel/<int:jid>", methods=["POST"])
