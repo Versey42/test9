@@ -1,9 +1,16 @@
 import uuid
+import threading
+import time
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template
 import requests
-from datetime import datetime
 
 app = Flask(__name__)
+
+jobs = {}
+job_id_counter = 0
+lock = threading.Lock()
+
 
 def send_single(app_token, event_token, device_id, is_ios, use_s2s):
     url = "https://app.adjust.com/event"
@@ -35,8 +42,38 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
     if use_s2s:
         data["s2s"] = "1"
 
-    response = requests.post(url, data=data, headers=headers)
-    return response.status_code, response.text
+    r = requests.post(url, data=data, headers=headers)
+    return r.status_code, r.text
+
+
+def scheduler(job_id):
+    job = jobs[job_id]
+
+    while True:
+        if job["cancelled"]:
+            return
+
+        now = datetime.now()
+        remaining = (job["target"] - now).total_seconds()
+
+        if remaining <= 0:
+            break
+
+        time.sleep(1)
+
+    if job["cancelled"]:
+        return
+
+    status, body = send_single(
+        job["app_token"],
+        job["event_token"],
+        job["device_id"],
+        job["is_ios"],
+        job["use_s2s"]
+    )
+
+    job["done"] = True
+    job["result"] = "Success" if status == 200 else body
 
 
 @app.route("/")
@@ -44,38 +81,73 @@ def home():
     return render_template("index.html")
 
 
-@app.route("/send-now", methods=["POST"])
-def send_now():
-    try:
-        data = request.get_json(force=True)
+@app.route("/schedule", methods=["POST"])
+def schedule():
+    global job_id_counter
 
-        app_token = data.get("app_token", "").strip()
-        event_token = data.get("event_token", "").strip()
-        device_id = data.get("device_id", "").strip()
-        is_ios = bool(data.get("is_ios"))
-        use_s2s = bool(data.get("use_s2s"))
+    data = request.get_json()
 
-        if not app_token or not event_token or not device_id:
-            return jsonify({"error": "Missing required fields"}), 400
+    app_token = data["app_token"]
+    event_token = data["event_token"]
+    device_id = data["device_id"]
+    is_ios = data["is_ios"]
+    use_s2s = data["use_s2s"]
 
-        status, body = send_single(
-            app_token,
-            event_token,
-            device_id,
-            is_ios,
-            use_s2s
-        )
+    mode = data["mode"]
 
-        return jsonify({
-            "status": status,
-            "response": body,
-            "time": datetime.now().strftime("%H:%M:%S")
+    if mode == "hours":
+        hrs = float(data["hours"])
+        target = datetime.now() + timedelta(hours=hrs)
+    else:
+        target = datetime.fromisoformat(data["datetime"])
+
+    with lock:
+        job_id_counter += 1
+        jid = job_id_counter
+
+        jobs[jid] = {
+            "id": jid,
+            "target": target,
+            "app_token": app_token,
+            "event_token": event_token,
+            "device_id": device_id,
+            "is_ios": is_ios,
+            "use_s2s": use_s2s,
+            "cancelled": False,
+            "done": False,
+            "result": ""
+        }
+
+    threading.Thread(target=scheduler, args=(jid,), daemon=True).start()
+
+    return jsonify({"status": "scheduled"})
+
+
+@app.route("/jobs")
+def get_jobs():
+    result = []
+
+    for j in jobs.values():
+        remaining = int((j["target"] - datetime.now()).total_seconds())
+        if remaining < 0:
+            remaining = 0
+
+        result.append({
+            "id": j["id"],
+            "remaining": remaining,
+            "done": j["done"],
+            "result": j["result"]
         })
 
-    except Exception as e:
-        return jsonify({
-            "error": str(e)
-        }), 500
+    return jsonify(result)
+
+
+@app.route("/cancel/<int:jid>", methods=["POST"])
+def cancel(jid):
+    if jid in jobs:
+        jobs[jid]["cancelled"] = True
+        return jsonify({"status": "cancelled"})
+    return jsonify({"error": "not found"}), 404
 
 
 if __name__ == "__main__":
