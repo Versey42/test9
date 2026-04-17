@@ -3,10 +3,39 @@
 <head>
 <title>S2S Manual</title>
 <style>
-body { background:#0d0d1a; color:#c0bedd; font-family:Courier; padding:20px;}
-input,button { width:100%; padding:8px; margin:5px 0; background:#1a1a2e; border:none; color:#fff;}
+body {
+    background:#0d0d1a;
+    color:#c0bedd;
+    font-family:Courier;
+    padding:20px;
+}
+
+input,button {
+    width:100%;
+    padding:8px;
+    margin:5px 0;
+    background:#1a1a2e;
+    border:none;
+    color:#fff;
+}
+
 button { cursor:pointer; }
-.job { background:#111; padding:8px; margin:5px 0; }
+
+.job {
+    background:#111;
+    padding:8px;
+    margin:5px 0;
+}
+
+.log {
+    background:#000;
+    padding:10px;
+    margin-top:10px;
+    white-space:pre-wrap;
+    font-size:12px;
+    max-height:200px;
+    overflow:auto;
+}
 </style>
 </head>
 <body>
@@ -33,6 +62,9 @@ button { cursor:pointer; }
 <h3>Jobs</h3>
 <div id="jobs"></div>
 
+<h3>Logs</h3>
+<div id="logs" class="log"></div>
+
 <script>
 function getData() {
     return {
@@ -44,6 +76,11 @@ function getData() {
     }
 }
 
+function addLog(data) {
+    const logBox = document.getElementById("logs");
+    logBox.textContent = JSON.stringify(data, null, 2) + "\n\n" + logBox.textContent;
+}
+
 async function creditNow() {
     const res = await fetch("/credit-now", {
         method:"POST",
@@ -52,7 +89,9 @@ async function creditNow() {
     });
 
     const data = await res.json();
-    alert("Result: " + data.result);
+
+    console.log(data);
+    addLog(data);
 }
 
 async function schedule() {
@@ -89,10 +128,14 @@ async function loadJobs() {
     jobs.forEach(j => {
         container.innerHTML += `
             <div class="job">
-                Job #${j.id} - ${j.done ? j.result : format(j.remaining)}
+                Job #${j.id} - ${j.done ? JSON.stringify(j.result) : format(j.remaining)}
                 ${!j.done ? `<button onclick="cancelJob(${j.id})">Cancel</button>` : ""}
             </div>
         `;
+
+        if (j.done && j.result) {
+            addLog(j.result);
+        }
     });
 }
 
