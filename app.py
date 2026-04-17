@@ -41,7 +41,7 @@ def home():
 
 @app.route("/send-now", methods=["POST"])
 def send_now():
-    data = request.json
+    data = request.get_json()
 
     app_token = data.get("app_token")
     event_token = data.get("event_token")
@@ -64,4 +64,4 @@ def send_now():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=10000)
