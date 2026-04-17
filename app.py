@@ -13,50 +13,45 @@ lock = threading.Lock()
 
 
 def send_single(app_token, event_token, device_id, is_ios, use_s2s):
-    url = "https://app.adjust.com/event"
+    try:
+        url = "https://app.adjust.com/event"
 
-    headers = {
-        "accept-encoding": "gzip",
-        "client-sdk": "android4.36.0",
-        "connection": "Keep-Alive",
-        "content-type": "application/x-www-form-urlencoded",
-        "host": "app.adjust.com"
-    }
+        headers = {
+            "accept-encoding": "gzip",
+            "client-sdk": "android4.36.0",
+            "content-type": "application/x-www-form-urlencoded"
+        }
 
-    data = {
-        "app_token": app_token,
-        "event_token": event_token,
-        "environment": "production",
-        "created_at": "",
-        "currency": "USD",
-        "revenue": "4.99"
-    }
+        data = {
+            "app_token": app_token,
+            "event_token": event_token,
+            "environment": "production"
+        }
 
-    if is_ios:
-        data["idfa"] = device_id
-    else:
-        data["gps_adid"] = device_id
-        data["android_uuid"] = str(uuid.uuid4())
-        data["google_app_set_id"] = str(uuid.uuid4())
+        if is_ios:
+            data["idfa"] = device_id
+        else:
+            data["gps_adid"] = device_id
+            data["android_uuid"] = str(uuid.uuid4())
 
-    if use_s2s:
-        data["s2s"] = "1"
+        if use_s2s:
+            data["s2s"] = "1"
 
-    r = requests.post(url, data=data, headers=headers)
-    return r.status_code, r.text
+        r = requests.post(url, data=data, headers=headers, timeout=10)
+        return str(r.status_code)
+
+    except Exception as e:
+        return str(e)
 
 
-def scheduler(job_id):
-    job = jobs[job_id]
+def run_job(jid):
+    job = jobs[jid]
 
     while True:
         if job["cancelled"]:
             return
 
-        now = datetime.now()
-        remaining = (job["target"] - now).total_seconds()
-
-        if remaining <= 0:
+        if datetime.now() >= job["target"]:
             break
 
         time.sleep(1)
@@ -64,7 +59,7 @@ def scheduler(job_id):
     if job["cancelled"]:
         return
 
-    status, body = send_single(
+    result = send_single(
         job["app_token"],
         job["event_token"],
         job["device_id"],
@@ -73,7 +68,7 @@ def scheduler(job_id):
     )
 
     job["done"] = True
-    job["result"] = "Success" if status == 200 else body
+    job["result"] = result
 
 
 @app.route("/")
@@ -85,68 +80,69 @@ def home():
 def schedule():
     global job_id_counter
 
-    data = request.get_json()
+    data = request.get_json(force=True)
 
-    app_token = data["app_token"]
-    event_token = data["event_token"]
-    device_id = data["device_id"]
-    is_ios = data["is_ios"]
-    use_s2s = data["use_s2s"]
+    try:
+        mode = data["mode"]
 
-    mode = data["mode"]
+        if mode == "hours":
+            target = datetime.now() + timedelta(hours=float(data["hours"]))
+        else:
+            target = datetime.fromisoformat(data["datetime"])
 
-    if mode == "hours":
-        hrs = float(data["hours"])
-        target = datetime.now() + timedelta(hours=hrs)
-    else:
-        target = datetime.fromisoformat(data["datetime"])
+        with lock:
+            job_id_counter += 1
+            jid = job_id_counter
 
-    with lock:
-        job_id_counter += 1
-        jid = job_id_counter
+            jobs[jid] = {
+                "id": jid,
+                "target": target,
+                "app_token": data["app_token"],
+                "event_token": data["event_token"],
+                "device_id": data["device_id"],
+                "is_ios": data["is_ios"],
+                "use_s2s": data["use_s2s"],
+                "cancelled": False,
+                "done": False,
+                "result": ""
+            }
 
-        jobs[jid] = {
-            "id": jid,
-            "target": target,
-            "app_token": app_token,
-            "event_token": event_token,
-            "device_id": device_id,
-            "is_ios": is_ios,
-            "use_s2s": use_s2s,
-            "cancelled": False,
-            "done": False,
-            "result": ""
-        }
+        threading.Thread(target=run_job, args=(jid,), daemon=True).start()
 
-    threading.Thread(target=scheduler, args=(jid,), daemon=True).start()
+        return jsonify({"ok": True})
 
-    return jsonify({"status": "scheduled"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/jobs")
 def get_jobs():
-    result = []
+    try:
+        output = []
 
-    for j in jobs.values():
-        remaining = int((j["target"] - datetime.now()).total_seconds())
-        if remaining < 0:
-            remaining = 0
+        for j in jobs.values():
+            remaining = int((j["target"] - datetime.now()).total_seconds())
+            if remaining < 0:
+                remaining = 0
 
-        result.append({
-            "id": j["id"],
-            "remaining": remaining,
-            "done": j["done"],
-            "result": j["result"]
-        })
+            output.append({
+                "id": j["id"],
+                "remaining": remaining,
+                "done": j["done"],
+                "result": j["result"]
+            })
 
-    return jsonify(result)
+        return jsonify(output)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/cancel/<int:jid>", methods=["POST"])
 def cancel(jid):
     if jid in jobs:
         jobs[jid]["cancelled"] = True
-        return jsonify({"status": "cancelled"})
+        return jsonify({"ok": True})
     return jsonify({"error": "not found"}), 404
 
 
