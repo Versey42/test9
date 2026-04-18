@@ -39,7 +39,6 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
 
         r = requests.post(url, data=data, headers=headers, timeout=10)
 
-        # 🔥 TRY PARSE JSON RESPONSE
         try:
             return r.json()
         except:
@@ -52,6 +51,7 @@ def send_single(app_token, event_token, device_id, is_ios, use_s2s):
 def run_job(jid):
     job = jobs[jid]
 
+    # ⏱ WAIT UNTIL TIME
     while True:
         if job["cancelled"]:
             return
@@ -61,9 +61,17 @@ def run_job(jid):
 
         time.sleep(1)
 
-    if job["cancelled"]:
+    # 🚫 DOUBLE EXECUTION GUARD
+    if job["cancelled"] or job["executed"]:
         return
 
+    # 🔒 LOCK BEFORE EXECUTION
+    with lock:
+        if job["executed"]:
+            return
+        job["executed"] = True
+
+    # 🔥 RUN ONLY ONCE
     result = send_single(
         job["app_token"],
         job["event_token"],
@@ -124,6 +132,7 @@ def schedule():
             "use_s2s": data["use_s2s"],
             "cancelled": False,
             "done": False,
+            "executed": False,  # 🔥 KEY FIX
             "result": None
         }
 
